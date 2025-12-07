@@ -1,0 +1,157 @@
+# 📥 8. Kaggle Dataset Setup
+# We are switching to a larger dataset from Kaggle for better model performance.
+# NOTE: You must upload your 'kaggle.json' API key when prompted.
+
+import os
+
+def setup_kaggle_and_download():
+    print("🔧 Setting up Kaggle...")
+    # Install Kaggle client
+    !pip install -q kaggle
+    
+    # Handle API Key upload
+    if not os.path.exists('/root/.kaggle/kaggle.json'):
+        print("⚠️ kaggle.json not found. Please upload it now.")
+        from google.colab import files
+        uploaded = files.upload()
+        
+        # Move to correct location
+        !mkdir -p ~/.kaggle
+        !cp kaggle.json ~/.kaggle/
+        !chmod 600 ~/.kaggle/kaggle.json
+        print("✅ Kaggle API key configured.")
+    else:
+        print("✅ Kaggle API key already exists.")
+        
+    # Download Dataset
+    if not os.path.exists("/content/plantvillage_data"):
+        print("⬇️ Downloading emmarex/plantdisease dataset...")
+        !kaggle datasets download -d emmarex/plantdisease -p /content
+        print("📦 Unzipping dataset...")
+        !unzip -q /content/plantdisease.zip -d /content/plantvillage_data
+        print("✅ Download and extraction complete.")
+    else:
+        print("ℹ️ Dataset already downloaded.")
+
+setup_kaggle_and_download()
+# ✂️ 9. Data Splitting (Train/Val)
+# Organizing the raw images into structured Training and Validation folders.
+
+import shutil
+from sklearn.model_selection import train_test_split
+from glob import glob
+
+def split_dataset():
+    # Define paths
+    # Note: The unzipped path structure depends on the zip file content
+    source_dataset = pathlib.Path("/content/plantvillage_data/plantvillage/PlantVillage")
+    target_base = config.DATA_DIR 
+    
+    train_dir = target_base / "train"
+    val_dir = target_base / "val"
+    
+    # Create directories
+    train_dir.mkdir(parents=True, exist_ok=True)
+    val_dir.mkdir(parents=True, exist_ok=True)
+    
+    if not source_dataset.exists():
+        print(f"❌ Source dataset not found at {source_dataset}. Check the unzip step.")
+        return
+
+    # Detect class folders
+    class_folders = [d.name for d in source_dataset.iterdir() if d.is_dir()]
+    print(f"🔎 Detected {len(class_folders)} classes.")
+    
+    for cls in class_folders:
+        cls_path = source_dataset / cls
+        
+        # Get all images (case insensitive)
+        images = []
+        for ext in ['*.jpg', '*.jpeg', '*.png', '*.JPG']:
+            images.extend(list(cls_path.glob(ext)))
+            
+        if not images:
+            print(f"⚠️ No images found in: {cls}")
+            continue
+            
+        # Split images (80% Train, 20% Val)
+        train_imgs, val_imgs = train_test_split(images, test_size=0.2, random_state=42)
+        
+        # Create class folders in target
+        (train_dir / cls).mkdir(exist_ok=True)
+        (val_dir / cls).mkdir(exist_ok=True)
+        
+        # Copy files
+        for img in train_imgs:
+            shutil.copy(str(img), str(train_dir / cls))
+            
+        for img in val_imgs:
+            shutil.copy(str(img), str(val_dir / cls))
+            
+    print("✅ Dataset split completed successfully!")
+    print(f"   Train Data: {train_dir}")
+    print(f"   Val Data: {val_dir}")
+
+split_dataset()
+
+# 🧠 10. Model Architecture Setup
+# Initializing ResNet50 with Transfer Learning.
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torchvision import datasets, models, transforms
+from torch.utils.data import DataLoader
+
+# Configuration
+BATCH_SIZE = 32
+IMG_SIZE = (224, 224)
+train_dir = config.DATA_DIR / "train"
+val_dir = config.DATA_DIR / "val"
+
+# Image Transforms (Augmentation for Train, Resize for Val)
+train_transform = transforms.Compose([
+    transforms.Resize(IMG_SIZE),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation(20),
+    transforms.ToTensor()
+])
+
+val_transform = transforms.Compose([
+    transforms.Resize(IMG_SIZE),
+    transforms.ToTensor()
+])
+
+# Load Datasets
+try:
+    train_dataset = datasets.ImageFolder(root=str(train_dir), transform=train_transform)
+    val_dataset = datasets.ImageFolder(root=str(val_dir), transform=val_transform)
+
+    # Data Loaders
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
+
+    class_names = train_dataset.classes
+    num_classes = len(class_names)
+    print(f"✅ DataLoaders ready. Detected {num_classes} classes: {class_names[:5]}...")
+
+    # Device Configuration
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"🚀 Using device: {device}")
+
+    # Model Initialization (ResNet50)
+    print("🏗️ Initializing ResNet50 model...")
+    model = models.resnet50(weights="IMAGENET1K_V2")
+
+    # Modify the final Fully Connected (FC) layer for our number of classes
+    model.fc = nn.Linear(model.fc.in_features, num_classes)
+    model = model.to(device)
+
+    # Loss and Optimizer
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=1e-4)
+    
+    print("✅ Model setup complete. Ready for training.")
+
+except Exception as e:
+    print(f"❌ Error setting up model: {e}. Did you run the split_dataset step?")
