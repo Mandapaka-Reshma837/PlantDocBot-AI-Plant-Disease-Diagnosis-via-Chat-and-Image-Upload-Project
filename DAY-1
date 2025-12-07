@@ -1,0 +1,126 @@
+# 🛠️ 1. Environment Setup & Imports
+# Importing necessary libraries for file handling, visualization, and system operations.
+
+import os
+import glob
+import shutil
+import pathlib
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
+from dataclasses import dataclass
+
+# Using a Configuration class to manage paths and constants.
+@dataclass
+class Config:
+    PROJECT_NAME: str = "PlantDocBot"
+    BASE_DIR: pathlib.Path = pathlib.Path(f"/content/{PROJECT_NAME}")
+    DATA_DIR: pathlib.Path = BASE_DIR / "data"
+    PLANT_VILLAGE_DIR: pathlib.Path = DATA_DIR / "plantvillage"
+    PLANT_DOC_DIR: pathlib.Path = DATA_DIR / "plantdoc"
+    TEXT_CORPUS_DIR: pathlib.Path = DATA_DIR / "text_corpus"
+
+config = Config()
+
+# Ensure base directories exist
+for directory in [config.PLANT_VILLAGE_DIR, config.PLANT_DOC_DIR, config.TEXT_CORPUS_DIR]:
+    directory.mkdir(parents=True, exist_ok=True)
+
+print(f"✅ Project Structure Created at: {config.BASE_DIR}")
+
+# 📥 2. Data Acquisition
+# Cloning the required datasets from GitHub. 
+# We check if the data already exists to prevent redundant downloads on re-runs.
+
+def clone_repo(repo_url, target_dir):
+    """
+    Clones a git repository to a target directory if it doesn't already exist.
+    """
+    if not os.listdir(target_dir):  # Check if directory is empty
+        print(f"⬇️ Cloning {repo_url}...")
+        !git clone {repo_url} {target_dir}
+        print(f"✅ Successfully cloned to {target_dir}")
+    else:
+        print(f"ℹ️ Data already exists in {target_dir}. Skipping download.")
+
+# PlantVillage Dataset (High-quality classification data)
+clone_repo("https://github.com/spMohanty/plantvillage-Dataset.git", config.PLANT_VILLAGE_DIR)
+
+# PlantDoc Dataset (Real-world noisy data)
+clone_repo("https://github.com/pratikkayal/PlantDoc-Dataset.git", config.PLANT_DOC_DIR)
+
+# 🔍 3. Data Verification
+# Verifying the contents of the downloaded datasets.
+
+def list_contents(directory, name, limit=5):
+    """Lists the first few items in a directory to verify content."""
+    try:
+        contents = sorted([p.name for p in directory.iterdir()])
+        print(f"\n📂 Contents of {name} ({len(contents)} items):")
+        print(f"   {contents[:limit]} ...")
+    except Exception as e:
+        print(f"❌ Error reading {name}: {e}")
+
+list_contents(config.PLANT_VILLAGE_DIR, "PlantVillage")
+list_contents(config.PLANT_DOC_DIR, "PlantDoc")
+
+# 📊 4. Exploratory Data Analysis (EDA)
+# Searching for image directories and calculating statistics.
+
+def analyze_dataset(base_path, dataset_name):
+    """
+    Walks through the directory to find image classes and counts.
+    """
+    image_extensions = {'.jpg', '.jpeg', '.png', '.bmp'}
+    class_counts = {}
+    
+    print(f"\n🔎 Analyzing {dataset_name}...")
+    
+    for root, dirs, files in os.walk(base_path):
+        # Count images in current directory
+        images = [f for f in files if pathlib.Path(f).suffix.lower() in image_extensions]
+        if images:
+            class_name = pathlib.Path(root).name
+            class_counts[class_name] = len(images)
+            
+    if not class_counts:
+        print(f"⚠️ No image directories found in {dataset_name}. Check the folder structure.")
+        return None
+    
+    # Sort by count
+    sorted_counts = sorted(class_counts.items(), key=lambda item: item[1], reverse=True)
+    
+    print(f"✅ Found {len(class_counts)} classes.")
+    print(f"   Total Images: {sum(class_counts.values())}")
+    print(f"   Top 5 Classes by size:")
+    for cls, count in sorted_counts[:5]:
+        print(f"     - {cls}: {count} images")
+        
+    return sorted_counts
+
+# Analyze PlantVillage (Note: The repo structure might be nested, e.g., raw/color)
+# We search recursively to handle this.
+pv_stats = analyze_dataset(config.PLANT_VILLAGE_DIR, "PlantVillage")
+
+# 🖼️ 5. Visualization
+# Displaying a sample image to ensure data integrity.
+
+def show_sample_image(base_path):
+    image_extensions = ['*.jpg', '*.jpeg', '*.png']
+    all_images = []
+    
+    for ext in image_extensions:
+        all_images.extend(glob.glob(str(base_path / "**" / ext), recursive=True))
+        
+    if all_images:
+        sample_img_path = all_images[0]
+        img = mpimg.imread(sample_img_path)
+        plt.figure(figsize=(6, 6))
+        plt.imshow(img)
+        plt.title(f"Sample: {pathlib.Path(sample_img_path).parent.name}")
+        plt.axis('off')
+        plt.show()
+        print(f"📷 Displaying sample from: {sample_img_path}")
+    else:
+        print("❌ No images found to display.")
+
+show_sample_image(config.PLANT_VILLAGE_DIR)
